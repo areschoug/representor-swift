@@ -8,27 +8,46 @@
 
 import Foundation
 
+/// https://tools.ietf.org/html/draft-kelly-json-hal-07#section-5.5
+private let AllowedHALLinkOptions = [
+	"templated", "type", "deprecation",
+	"name", "profile", "title", "hreflang"
+]
+
+private func parseHALLinkAttributes(options: [String:AnyObject], builder: HTTPTransitionBuilder) {
+	for (key, value) in options {
+		guard AllowedHALLinkOptions.contains(key) else { continue }
+		builder.addAttribute(key, title: nil, value: value, defaultValue: nil, required: nil)
+	}
+}
+
 func parseHALLinks(_ halLinks: [String: AnyObject]) -> [String: [HTTPTransition]] {
-  var links: [String: [HTTPTransition]] = [:]
+	var links: [String: [HTTPTransition]] = [:]
 
-  for (relation, options) in halLinks {
-    if let options = options as? [String: AnyObject],
-           let href = options["href"] as? String
-    {
-      let transition = HTTPTransition(uri: href)
-      links[relation] = [transition]
-    } else if let options = options as? [[String: AnyObject]] {
-      links[relation] = options.flatMap {
-        if let href = $0["href"] as? String {
-          return HTTPTransition(uri: href)
-        }
+	for (relation, options) in halLinks {
+		if let options = options as? [String: AnyObject],
+			let href = options["href"] as? String
+		{
+			let transition = HTTPTransition(uri: href, { (builder) in
+				parseHALLinkAttributes(options: options, builder: builder)
+			})
+			links[relation] = [transition]
+		} else if let options = options as? [[String: AnyObject]] {
+			links[relation] = options.flatMap {
+				let transitionOptions = $0
+				if let href = $0["href"] as? String {
+					let transition = HTTPTransition(uri: href, { (builder) in
+						parseHALLinkAttributes(options: transitionOptions, builder: builder)
+					})
+					return transition
+				}
 
-        return nil
-      }
-    }
-  }
+				return nil
+			}
+		}
+	}
 
-  return links
+	return links
 }
 
 
@@ -55,12 +74,12 @@ public func deserializeHAL(_ hal:[String: Any]) -> Representor<HTTPTransition> {
   var hal = hal
 
   var links: [String: [HTTPTransition]] = [:]
-  if let halLinks = hal.removeValue(forKey: "_links") as? [String: AnyObject] {
+  if let halLinks = hal["_links"] as? [String: AnyObject] {
     links = parseHALLinks(halLinks)
   }
 
   var representors:[String: [Representor<HTTPTransition>]] = [:]
-  if let embedded = hal.removeValue(forKey: "_embedded") as? [String: AnyObject] {
+  if let embedded = hal["_embedded"] as? [String: AnyObject] {
     representors = parseEmbeddedHALs(embedded)
   }
 
